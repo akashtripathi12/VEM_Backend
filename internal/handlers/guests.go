@@ -1,38 +1,103 @@
 package handlers
 
-import "net/http"
+import (
+	"github.com/akashtripathi12/TBO_Backend/internal/utils"
+	"github.com/gofiber/fiber/v2"
+)
 
-func (m *Repository) GetGuests(w http.ResponseWriter, r *http.Request) {
+func (m *Repository) GetGuests(c *fiber.Ctx) error {
+	// Get event ID from path parameter
+	id := c.Params("id")
+
 	// TODO: Get guests by event ID
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Get Guests Endpoint"))
+	// guests, err := m.DB.GetGuestsByEventID(id)
+	// if err != nil {
+	//     return utils.InternalErrorResponse(c, "Failed to fetch guests")
+	// }
+
+	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+		"message": "Get Guests Endpoint",
+		"eventId": id,
+		"guests":  []interface{}{},
+	})
 }
 
-func (m *Repository) GetGuest(w http.ResponseWriter, r *http.Request) {
+func (m *Repository) GetGuest(c *fiber.Ctx) error {
+	// Get guest ID from path parameter
+	id := c.Params("id")
+
 	// TODO: Get guest by ID
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Get Guest Endpoint"))
+	// guest, err := m.DB.GetGuestByID(id)
+	// if err != nil {
+	//     return utils.NotFoundResponse(c, "Guest")
+	// }
+
+	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+		"message": "Get Guest Endpoint",
+		"id":      id,
+	})
 }
 
-func (m *Repository) CreateGuest(w http.ResponseWriter, r *http.Request) {
+func (m *Repository) CreateGuest(c *fiber.Ctx) error {
+	// TODO: Parse request body
+	// var guest models.HeadGuest
+	// if err := c.BodyParser(&guest); err != nil {
+	//     return utils.ValidationErrorResponse(c, "Invalid request body")
+	// }
+
 	// TODO: Create guest
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Create Guest Endpoint"))
+	// if err := m.DB.AddHeadGuest(guest); err != nil {
+	//     return utils.InternalErrorResponse(c, "Failed to create guest")
+	// }
+
+	return utils.SuccessResponse(c, fiber.StatusCreated, fiber.Map{
+		"message": "Create Guest Endpoint",
+	})
 }
 
-func (m *Repository) AddSubGuest(w http.ResponseWriter, r *http.Request) {
-	// TODO: Add sub guest
-	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Add Sub Guest Endpoint"))
-}
-func (m *Repository) UpdateGuest(w http.ResponseWriter, r *http.Request) {
-	// TODO: Update guest
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Update Guest Endpoint"))
+func (m *Repository) AddSubGuest(c *fiber.Ctx) error {
+	// Get head guest ID from path parameter
+	id := c.Params("id")
+
+	// TODO: Parse request body
+	// var subGuest models.SubGuest
+	// if err := c.BodyParser(&subGuest); err != nil {
+	//     return utils.ValidationErrorResponse(c, "Invalid request body")
+	// }
+
+	return utils.SuccessResponse(c, fiber.StatusCreated, fiber.Map{
+		"message":     "Add Sub Guest Endpoint",
+		"headGuestId": id,
+	})
 }
 
-func (m *Repository) DeleteGuest(w http.ResponseWriter, r *http.Request) {
+func (m *Repository) UpdateGuest(c *fiber.Ctx) error {
+	// Get guest ID from path parameter
+	id := c.Params("id")
+
+	// TODO: Parse request body and update guest
+	// var guest models.HeadGuest
+	// if err := c.BodyParser(&guest); err != nil {
+	//     return utils.ValidationErrorResponse(c, "Invalid request body")
+	// }
+
+	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+		"message": "Update Guest Endpoint",
+		"id":      id,
+	})
+}
+
+func (m *Repository) DeleteGuest(c *fiber.Ctx) error {
+	// Get guest ID from path parameter
+	id := c.Params("id")
+
 	// TODO: Delete guest
-	w.WriteHeader(http.StatusOK)
-	w.Write([]byte("Delete Guest Endpoint"))
+	// if err := m.DB.DeleteGuest(id); err != nil {
+	//     return utils.InternalErrorResponse(c, "Failed to delete guest")
+	// }
+
+	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+		"message": "Delete Guest Endpoint",
+		"id":      id,
+	})
 }
