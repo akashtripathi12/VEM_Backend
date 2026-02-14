@@ -4,7 +4,6 @@ import (
 	"github.com/akashtripathi12/TBO_Backend/internal/models"
 	"github.com/akashtripathi12/TBO_Backend/internal/utils"
 	"github.com/gofiber/fiber/v2"
-	"github.com/google/uuid"
 )
 
 // List Event Guests
@@ -35,33 +34,7 @@ func (m *Repository) GetGuest(c *fiber.Ctx) error {
 	})
 }
 
-// Add Head Guest
-func (m *Repository) AddHeadGuest(c *fiber.Ctx) error {
-	eventID := c.Params("id") // Event ID from URL
 
-	var guest models.Guest
-	if err := c.BodyParser(&guest); err != nil {
-		return utils.ValidationErrorResponse(c, "Invalid request body")
-	}
-
-	// Validate Event ID
-	parsedEventID, err := uuid.Parse(eventID)
-	if err != nil {
-		return utils.ValidationErrorResponse(c, "Invalid Event ID")
-	}
-
-	guest.EventID = parsedEventID
-	guest.Type = "Adult" // Head guest is always adult
-
-	if err := m.DB.Create(&guest).Error; err != nil {
-		return utils.InternalErrorResponse(c, "Failed to create head guest")
-	}
-
-	return utils.SuccessResponse(c, fiber.StatusCreated, fiber.Map{
-		"message": "Head guest added successfully",
-		"guest":   guest,
-	})
-}
 
 // Create Guest (Generic)
 func (m *Repository) CreateGuest(c *fiber.Ctx) error {
