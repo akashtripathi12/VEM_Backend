@@ -5,7 +5,6 @@ import (
 	"gorm.io/gorm"
 )
 
-// Repository holds the application configuration and database store
 type Repository struct {
 	App *config.Config
 	DB  *gorm.DB

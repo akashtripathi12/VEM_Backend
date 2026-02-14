@@ -10,6 +10,7 @@ import (
 	"github.com/akashtripathi12/TBO_Backend/internal/store"
 
 	"github.com/gofiber/fiber/v2"
+	"github.com/gofiber/fiber/v2/middleware/cors"
 	"github.com/joho/godotenv"
 )
 
@@ -22,12 +23,16 @@ func main() {
 	// Initialize Store
 	store.InitDB()
 
-	
-
 	// Initialize Repository
 	repo := handlers.NewRepository(cfg, store.DB)
 
 	app := fiber.New()
+
+	// Enable CORS
+	app.Use(cors.New(cors.Config{
+		AllowOrigins: "*", // For development
+		AllowHeaders: "Origin, Content-Type, Accept, Authorization, X-Clerk-User-Id",
+	}))
 
 	// Setup Routes
 	routes.SetupRoutes(app, cfg, repo)

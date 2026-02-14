@@ -3,12 +3,13 @@ package routes
 import (
 	"github.com/akashtripathi12/TBO_Backend/internal/config"
 	"github.com/akashtripathi12/TBO_Backend/internal/handlers"
+	"github.com/akashtripathi12/TBO_Backend/internal/middleware" // Import your middleware package
 	"github.com/gofiber/fiber/v2"
 )
 
 // SetupRoutes configures all application routes
 func SetupRoutes(app *fiber.App, cfg *config.Config, repo *handlers.Repository) {
-	// Health check endpoint
+	// --- Public Routes (No Auth Required) ---
 	app.Get("/health", func(c *fiber.Ctx) error {
 		return c.JSON(fiber.Map{
 			"status": "ok",
@@ -19,18 +20,24 @@ func SetupRoutes(app *fiber.App, cfg *config.Config, repo *handlers.Repository) 
 	// API v1 group
 	api := app.Group("/api/v1")
 
-	// Auth routes
-	auth := api.Group("/auth")
-	auth.Post("/login/agent", repo.LoginAgent)
-	auth.Post("/login/guest", repo.LoginGuest)
-	auth.Post("/logout", repo.Logout)
-	auth.Get("/me", repo.GetCurrentUser)
+	// Public Routes
+	api.Post("/auth/signup", repo.SignupHandler) // New signup
+	api.Post("/auth/login", repo.LoginHandler)   // New login
+
+	// Protected Routes
+	protected := api.Group("/", middleware.Protected)
+
+	api.Get("/users/me", repo.GetMe)
+
+	// Deprecated or Aliased
+	api.Post("/agents/onboarding", repo.SignupHandler) // Keep for compatibility if frontend tries old route temporarily
 
 	// Dashboard metrics
-	api.Get("/dashboard/metrics", repo.GetMetrics)
+	protected.Get("/dashboard/metrics", repo.GetMetrics)
+	protected.Get("/auth/me", repo.GetMe) // Moved to protected
 
 	// Event routes
-	events := api.Group("/events")
+	events := protected.Group("/events")
 	events.Get("/", repo.GetEvents)
 	events.Post("/", repo.CreateEvent)
 	events.Get("/:id", repo.GetEvent)
@@ -38,22 +45,23 @@ func SetupRoutes(app *fiber.App, cfg *config.Config, repo *handlers.Repository) 
 	events.Delete("/:id", repo.DeleteEvent)
 	events.Get("/:id/venues", repo.GetEventVenues)
 	events.Get("/:id/allocations", repo.GetEventAllocations)
-	events.Get("/:id/guests", repo.GetGuests) // Event-specific guests
+	events.Get("/:id/guests", repo.GetGuests)
+	events.Post("/:id/head-guest", repo.AssignHeadGuest)
 
 	// Guest routes
-	guests := api.Group("/guests")
+	guests := protected.Group("/guests")
+	guests.Post("/", repo.CreateGuest)
 	guests.Get("/:id", repo.GetGuest)
 	guests.Patch("/:id", repo.UpdateGuest)
 	guests.Delete("/:id", repo.DeleteGuest)
-	guests.Post("/", repo.CreateGuest)
 	guests.Post("/:id/subguests", repo.AddSubGuest)
 
 	// Allocation routes
-	allocations := api.Group("/allocations")
+	allocations := protected.Group("/allocations")
 	allocations.Post("/", repo.CreateAllocation)
 	allocations.Put("/:id", repo.UpdateAllocation)
 
 	locations := api.Group("/locations")
-    locations.Get("/countries", repo.GetCountries)
-    locations.Get("/cities", repo.GetCities)
+	locations.Get("/countries", repo.GetCountries)
+	locations.Get("/cities", repo.GetCities)
 }
