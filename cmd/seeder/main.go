@@ -3,7 +3,6 @@ package main
 import (
 	"log"
 
-	"github.com/akashtripathi12/TBO_Backend/internal/models"
 	"github.com/akashtripathi12/TBO_Backend/internal/store"
 
 	"github.com/joho/godotenv"
@@ -16,51 +15,54 @@ func main() {
 
 	store.InitDB()
 
-	log.Println("⚠️  STARTING DATABASE RESET...")
+	// ========== COMMENTED OUT TO PRESERVE EXISTING DATA ==========
+	// Uncomment below if you want to reset the database
 
-	store.DB.Exec("TRUNCATE TABLE users CASCADE")
-	store.DB.Exec("TRUNCATE TABLE guests CASCADE")
-	store.DB.Exec("TRUNCATE TABLE agent_profiles CASCADE")
-	store.DB.Exec("TRUNCATE TABLE events CASCADE")
+	// log.Println("⚠️  STARTING DATABASE RESET...")
+	// store.DB.Exec("TRUNCATE TABLE users CASCADE")
+	// store.DB.Exec("TRUNCATE TABLE guests CASCADE")
+	// store.DB.Exec("TRUNCATE TABLE agent_profiles CASCADE")
+	// store.DB.Exec("TRUNCATE TABLE events CASCADE")
+	// log.Println("✅ Database Cleared.")
+	// ========== COMMENTED OUT TO AVOID RE-CREATING TABLES ==========
+	// Uncomment below if you need to run migrations
 
-	log.Println("✅ Database Cleared.")
-	// Sync schema to DB
-	err := store.DB.AutoMigrate(
-		// 1. Auth System
-		&models.User{},
-		&models.AgentProfile{},
+	// err := store.DB.AutoMigrate(
+	//     // 1. Auth System
+	//     &models.User{},
+	//     &models.AgentProfile{},
+	//     // 2. Global Location Hierarchy
+	//     &models.Country{},
+	//     &models.City{},
+	//     // 3. Hotel Inventory (The Product)
+	//     &models.Hotel{},
+	//     &models.RoomOffer{},
+	//     &models.BanquetHall{},
+	//     &models.CateringMenu{},
+	//     // 4. Event Management
+	//     &models.Event{},
+	//     &models.Guest{},
+	//     // 5. Allocation Logic (The Join Table)
+	//     &models.GuestAllocation{},
+	// )
+	// if err != nil {
+	//     log.Fatal("❌ Migration Failed:", err)
+	// }
+	// log.Println("✅ All tables created successfully!")
 
-		// 2. Global Location Hierarchy
-		&models.Country{},
-		&models.City{},
+	log.Println("🌱 Seeding data...")
 
-		// 3. Hotel Inventory (The Product)
-		&models.Hotel{},
-		&models.RoomOffer{},
-		&models.BanquetHall{},
-		&models.CateringMenu{},
+	// Seed countries from TBO API (comment out if already seeded)
+	// SeedCountries()
 
-		// 4. Event Management
-		&models.Event{},
-		&models.Guest{},
+	// Seed cities from TBO API
+	// SeedCities()
 
-		// 5. Allocation Logic (The Join Table)
-		&models.GuestAllocation{},
-	)
+	// Seed hotels from TBO API (max 10 per city)
+	// SeedHotels()
 
-	if err != nil {
-		log.Fatal("❌ Migration Failed:", err)
-	}
+	// Seed rooms for ALL hotels
+	// SeedRooms(0)
 
-	log.Println("✅ All tables created successfully!")
-
-	// Auto Migrate
-	log.Println("🌱 Auto Migrating...")
-	store.DB.AutoMigrate(&models.User{}, &models.AgentProfile{}, &models.Event{}, &models.Guest{})
-
-	log.Println("🌱 Seeding new data...")
-
-	// populating logic here
-
-	log.Println("🎉 Database Reset & Populated Successfully!")
+	log.Println("🎉 Data Seeding Completed Successfully!")
 }
