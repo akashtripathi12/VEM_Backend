@@ -34,12 +34,12 @@ type CityListResponse struct {
 }
 
 // SeedCities fetches cities for all countries from TBO API and populates the database
-func SeedCities() {
+func SeedCities(targetCountries []string) {
 	log.Println("🏙️  Fetching cities from TBO API...")
 
-	// Get all country codes from database
+	// Get only target country codes from database
 	var countries []models.Country
-	result := store.DB.Select("code").Find(&countries)
+	result := store.DB.Where("code IN ?", targetCountries).Select("code").Find(&countries)
 	if result.Error != nil {
 		log.Printf("❌ Error fetching countries: %v", result.Error)
 		return
@@ -63,6 +63,16 @@ func SeedCities() {
 
 		if len(cities) == 0 {
 			continue
+		}
+
+		// Implement limits: IN: 200, others: 100
+		limit := 100
+		if country.Code == "IN" {
+			limit = 200
+		}
+
+		if len(cities) > limit {
+			cities = cities[:limit]
 		}
 
 		// Add cities to the collection

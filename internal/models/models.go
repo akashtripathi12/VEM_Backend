@@ -62,6 +62,7 @@ type Event struct {
 	EndDate        time.Time      `json:"endDate"`
 }
 
+
 // 1. Country Table (Global)
 type Country struct {
 	Code      string `gorm:"primaryKey;size:2"` // ISO Code 'US', 'IN'
@@ -103,11 +104,14 @@ type RoomOffer struct {
 	ID             string         `gorm:"primaryKey;type:uuid;default:gen_random_uuid()"`
 	HotelID        string         `gorm:"index;not null"` // Links to Hotel.ID
 	Name           string         `gorm:"not null"`       // "Ocean King"
+	
 	BookingCode    string         `gorm:"not null"`       // API Booking Key
 	TotalFare      float64        `gorm:"type:decimal(10,2);not null"`
 	Currency       string         `gorm:"size:3;default:'USD'"`
 	IsRefundable   bool           `gorm:"default:false"`
 	CancelPolicies datatypes.JSON `gorm:"type:jsonb"` // Stores the complex policy array
+	Count          int            `gorm:"default:100"`
+	MaxCapacity    int            `gorm:"default:2"`
 }
 
 // 5. Banquet Halls

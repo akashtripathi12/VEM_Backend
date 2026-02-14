@@ -52,7 +52,7 @@ type HotelCodeListResponse struct {
 }
 
 // SeedHotels fetches hotels for all cities from TBO API and populates the database
-func SeedHotels() {
+func SeedHotels(limitPerCity int) {
 	log.Println("🏨 Fetching hotels from TBO API...")
 
 	// Get all cities from database
@@ -85,10 +85,9 @@ func SeedHotels() {
 			continue
 		}
 
-		// Cap at 10 hotels per city
-		maxHotels := 10
-		if len(hotels) > maxHotels {
-			hotels = hotels[:maxHotels]
+		// Cap hotels per city
+		if len(hotels) > limitPerCity {
+			hotels = hotels[:limitPerCity]
 		}
 
 		// Add hotels to the collection

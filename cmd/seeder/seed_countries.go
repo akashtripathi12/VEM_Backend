@@ -30,7 +30,7 @@ type CountryResponse struct {
 }
 
 // SeedCountries fetches countries from TBO API and populates the database
-func SeedCountries() {
+func SeedCountries(targetCodes []string) {
 	log.Println("🌍 Fetching countries from TBO API...")
 
 	// Create HTTP request
@@ -68,9 +68,17 @@ func SeedCountries() {
 
 	log.Printf("✅ Fetched %d countries from API", len(apiResponse.Countries))
 
-	// Prepare all countries for batch insert
+	// Prepare only target countries for batch insert
 	var countries []models.Country
+	targetMap := make(map[string]bool)
+	for _, code := range targetCodes {
+		targetMap[code] = true
+	}
+
 	for _, country := range apiResponse.Countries {
+		if !targetMap[country.Code] {
+			continue
+		}
 		countries = append(countries, models.Country{
 			Code:      country.Code,
 			Name:      country.Name,
