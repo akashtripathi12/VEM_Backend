@@ -52,4 +52,8 @@ func SetupRoutes(app *fiber.App, cfg *config.Config, repo *handlers.Repository) 
 	allocations := api.Group("/allocations")
 	allocations.Post("/", repo.CreateAllocation)
 	allocations.Put("/:id", repo.UpdateAllocation)
+
+	locations := api.Group("/locations")
+    locations.Get("/countries", repo.GetCountries)
+    locations.Get("/cities", repo.GetCities)
 }

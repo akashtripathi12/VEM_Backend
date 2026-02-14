@@ -4,6 +4,9 @@ import (
 	"log"
 	"os"
 
+	"github.com/akashtripathi12/TBO_Backend/internal/config"
+	"github.com/akashtripathi12/TBO_Backend/internal/handlers"
+	"github.com/akashtripathi12/TBO_Backend/internal/routes"
 	"github.com/akashtripathi12/TBO_Backend/internal/store"
 
 	"github.com/gofiber/fiber/v2"
@@ -13,14 +16,19 @@ import (
 func main() {
 	godotenv.Load()
 
+	// Load Config
+	cfg := config.Load()
+
 	// Initialize Store
 	store.InitDB()
 
 	app := fiber.New()
 
-	app.Get("/health", func(c *fiber.Ctx) error {
-		return c.SendString("TBO Backend Operational 🚀")
-	})
+	// Initialize Repository
+	repo := handlers.NewRepository(cfg)
+
+	// Setup Routes
+	routes.SetupRoutes(app, cfg, repo)
 
 	port := os.Getenv("PORT")
 	if port == "" {
