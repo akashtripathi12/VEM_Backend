@@ -13,7 +13,7 @@ var DB *gorm.DB
 func InitDB() {
 	dsn := os.Getenv("DATABASE_URL")
 
-var err error
+	var err error
 	// FIX: Use '=' instead of ':=' to assign to the global 'DB' variable
 	DB, err = gorm.Open(postgres.Open(dsn), &gorm.Config{})
 	if err != nil {
