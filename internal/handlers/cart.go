@@ -1,9 +1,14 @@
 package handlers
 
 import (
+	"context"
+	"encoding/json"
 	"fmt"
+	"log"
+	"time"
 
 	"github.com/akashtripathi12/TBO_Backend/internal/models"
+	"github.com/akashtripathi12/TBO_Backend/internal/store"
 	"github.com/akashtripathi12/TBO_Backend/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -64,7 +69,9 @@ func (m *Repository) AddToCart(c *fiber.Ctx) error {
 	switch req.Type {
 	case "room":
 		var room models.RoomOffer
+		log.Printf("🔍 [CART] Searching for RoomOffer ID: %s\n", req.RefID)
 		if err := m.DB.Where("id = ?", req.RefID).First(&room).Error; err != nil {
+			log.Printf("❌ [CART] RoomOffer NOT FOUND: %s (Error: %v)\n", req.RefID, err)
 			return utils.ErrorResponse(c, fiber.StatusNotFound, "Room offer not found")
 		}
 		parentHotelID = &room.HotelID
@@ -86,13 +93,23 @@ func (m *Repository) AddToCart(c *fiber.Ctx) error {
 		parentHotelID = &catering.HotelID
 		lockedPrice = catering.PricePerPlate
 
+	case "hotel":
+		var hotel models.Hotel
+		log.Printf("🔍 [CART] Searching for Hotel Code: %s\n", req.RefID)
+		if err := m.DB.Where("hotel_code = ?", req.RefID).First(&hotel).Error; err != nil {
+			log.Printf("❌ [CART] Hotel NOT FOUND: %s (Error: %v)\n", req.RefID, err)
+			return utils.ErrorResponse(c, fiber.StatusNotFound, "Hotel not found")
+		}
+		parentHotelID = &hotel.ID
+		lockedPrice = 0
+
 	case "flight":
 		// Flights don't have a parent hotel
 		parentHotelID = nil
 		lockedPrice = 0 // Flight pricing would be handled separately
 
 	default:
-		return utils.ErrorResponse(c, fiber.StatusBadRequest, "Invalid type. Must be: room, banquet, catering, or flight")
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, "Invalid type. Must be: hotel, room, banquet, catering, or flight")
 	}
 
 	// Create cart item
@@ -113,6 +130,9 @@ func (m *Repository) AddToCart(c *fiber.Ctx) error {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to add item to cart")
 	}
 
+	// Invalidate Cache
+	utils.Invalidate(context.Background(), fmt.Sprintf("cart:event:%s", eventID))
+
 	return utils.SuccessResponse(c, fiber.StatusCreated, fiber.Map{
 		"message": "Item added to cart successfully",
 		"item":    cartItem,
@@ -120,7 +140,7 @@ func (m *Repository) AddToCart(c *fiber.Ctx) error {
 }
 
 // GetEventCart retrieves all cart items for an event with hierarchical grouping
-func (m *Repository) GetEventCart(c *fiber.Ctx) error {
+func (r *Repository) GetEventCart(c *fiber.Ctx) error {
 	eventID := c.Params("id")
 	status := c.Query("status") // Optional filter by status
 
@@ -129,9 +149,32 @@ func (m *Repository) GetEventCart(c *fiber.Ctx) error {
 		return utils.ErrorResponse(c, fiber.StatusBadRequest, "Invalid Event ID")
 	}
 
+	var response models.CartResponse
+	cacheKey := fmt.Sprintf("cart:event:%s", eventID)
+	if status != "" {
+		cacheKey += ":status:" + status
+	}
+	ctx := context.Background()
+
+	// 1. Try to get from Redis
+	if store.RDB != nil {
+		cachedData, err := store.RDB.Get(ctx, cacheKey).Result()
+		if err == nil {
+			if err := json.Unmarshal([]byte(cachedData), &response); err == nil {
+				log.Printf("⚡ [REDIS] CACHE HIT: %s\n", cacheKey)
+				return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+					"message": "Cart fetched successfully (Cached)",
+					"cart":    response,
+				})
+			}
+		} else {
+			log.Printf("🔍 [REDIS] CACHE MISS: %s (Reason: %v)\n", cacheKey, err)
+		}
+	}
+
 	// Fetch cart items
 	var cartItems []models.CartItem
-	query := m.DB.Where("event_id = ?", eventID)
+	query := r.DB.Where("event_id = ?", eventID)
 	if status != "" {
 		query = query.Where("status = ?", status)
 	}
@@ -140,9 +183,18 @@ func (m *Repository) GetEventCart(c *fiber.Ctx) error {
 	}
 
 	// Build hierarchical response
-	response, err := m.buildHierarchicalCartResponse(eventID, cartItems)
+	var err error
+	response, err = r.buildHierarchicalCartResponse(eventID, cartItems)
 	if err != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to build cart response: "+err.Error())
+	}
+
+	// 2. Store in Redis
+	if store.RDB != nil {
+		if data, err := json.Marshal(response); err == nil {
+			store.RDB.Set(ctx, cacheKey, data, 1*time.Hour)
+			log.Printf("💾 [REDIS] CACHE SET: %s\n", cacheKey)
+		}
 	}
 
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
@@ -193,6 +245,9 @@ func (m *Repository) UpdateCartItem(c *fiber.Ctx) error {
 		if err := m.DB.Model(&cartItem).Updates(updates).Error; err != nil {
 			return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to update cart item")
 		}
+
+		// Invalidate Cache
+		utils.Invalidate(context.Background(), fmt.Sprintf("cart:event:%s", eventID))
 	}
 
 	// Fetch updated item
@@ -226,6 +281,9 @@ func (m *Repository) RemoveFromCart(c *fiber.Ctx) error {
 		return utils.ErrorResponse(c, fiber.StatusNotFound, "Cart item not found")
 	}
 
+	// Invalidate Cache
+	utils.Invalidate(context.Background(), fmt.Sprintf("cart:event:%s", eventID))
+
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
 		"message": "Cart item removed successfully",
 	})
@@ -248,6 +306,9 @@ func (m *Repository) UpdateCartStatus(c *fiber.Ctx) error {
 	if result.Error != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to approve cart items")
 	}
+
+	// Invalidate Cache
+	utils.Invalidate(context.Background(), fmt.Sprintf("cart:event:%s", eventID))
 
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
 		"message":       "Cart approved successfully",
@@ -360,6 +421,12 @@ func (m *Repository) buildHierarchicalCartResponse(eventID string, cartItems []m
 				cartDetail.CateringDetails = cateringDetail
 			}
 			hotelGroups[hotelID].Catering = append(hotelGroups[hotelID].Catering, cartDetail)
+
+		case "hotel":
+			if hotelDetail, ok := hotels[item.RefID]; ok {
+				cartDetail.HotelDetails = hotelDetail
+			}
+			hotelGroups[hotelID].HotelWishlistItem = &cartDetail
 		}
 	}
 

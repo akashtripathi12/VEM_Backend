@@ -2,6 +2,7 @@ package config
 
 import (
 	"os"
+	"strconv"
 	"time"
 )
 
@@ -14,6 +15,9 @@ type Config struct {
 	AllowedOrigins []string
 	TrustedProxies []string
 	EnableLogger   bool
+	RedisAddr      string
+	RedisPass      string
+	RedisDB        int
 }
 
 func Load() *Config {
@@ -36,5 +40,17 @@ func Load() *Config {
 		AllowedOrigins: []string{"*"},   // TODO: Restrict in production
 		TrustedProxies: []string{},
 		EnableLogger:   true,
+		RedisAddr:      os.Getenv("REDIS_ADDR"),
+		RedisPass:      os.Getenv("REDIS_PASS"),
+		RedisDB:        getEnvInt("REDIS_DB", 0),
 	}
+}
+
+func getEnvInt(key string, defaultVal int) int {
+	if val, ok := os.LookupEnv(key); ok {
+		if i, err := strconv.Atoi(val); err == nil {
+			return i
+		}
+	}
+	return defaultVal
 }

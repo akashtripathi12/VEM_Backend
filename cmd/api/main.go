@@ -24,6 +24,9 @@ func main() {
 	store.InitDB()
 	log.Println("✅ DB Connected. URL:", os.Getenv("DATABASE_URL"))
 
+	// Initialize Redis
+	store.InitRedis(cfg)
+
 	// Initialize Repository
 	repo := handlers.NewRepository(cfg, store.DB)
 

@@ -12,6 +12,7 @@ import (
 type CartItem struct {
 	ID            uuid.UUID `gorm:"type:uuid;primary_key;default:gen_random_uuid()" json:"id"`
 	EventID       uuid.UUID `gorm:"type:uuid;index;not null" json:"event_id"`
+	Event         Event     `gorm:"foreignKey:EventID;constraint:OnUpdate:CASCADE,OnDelete:CASCADE;" json:"-"`
 	Type          string    `gorm:"size:20;not null;index" json:"type"`             // 'room', 'banquet', 'catering', 'flight'
 	RefID         string    `gorm:"size:255;not null" json:"ref_id"`                // ID of the referenced item
 	ParentHotelID *string   `gorm:"size:50;index" json:"parent_hotel_id,omitempty"` // Hotel code for grouping (NULL for flights)
@@ -20,6 +21,7 @@ type CartItem struct {
 	LockedPrice   float64   `gorm:"type:decimal(10,2)" json:"locked_price"`         // Price at time of adding
 	Notes         string    `gorm:"type:text" json:"notes,omitempty"`               // Optional notes
 	AddedBy       uuid.UUID `gorm:"type:uuid;index" json:"added_by"`                // User who added this item
+	User          User      `gorm:"foreignKey:AddedBy" json:"-"`                    // Reference to user who added
 	CreatedAt     time.Time `json:"created_at"`
 	UpdatedAt     time.Time `json:"updated_at"`
 }
@@ -32,6 +34,7 @@ func (c *CartItem) BeforeSave(tx *gorm.DB) error {
 		"banquet":  true,
 		"catering": true,
 		"flight":   true,
+		"hotel":    true,
 	}
 	if !validTypes[c.Type] {
 		return gorm.ErrInvalidData
@@ -61,10 +64,11 @@ type CartResponse struct {
 
 // HotelCartGroup groups cart items by hotel
 type HotelCartGroup struct {
-	HotelDetails interface{}      `json:"hotel_details"` // Full Hotel object
-	Rooms        []CartItemDetail `json:"rooms"`
-	Banquets     []CartItemDetail `json:"banquets"`
-	Catering     []CartItemDetail `json:"catering"`
+	HotelDetails      interface{}      `json:"hotel_details"` // Full Hotel object
+	Rooms             []CartItemDetail `json:"rooms"`
+	Banquets          []CartItemDetail `json:"banquets"`
+	Catering          []CartItemDetail `json:"catering"`
+	HotelWishlistItem *CartItemDetail  `json:"hotel_wishlist_item,omitempty"`
 }
 
 // CartItemDetail combines cart item with referenced item details
@@ -83,4 +87,5 @@ type CartItemDetail struct {
 	BanquetDetails  interface{} `json:"banquet_details,omitempty"`
 	CateringDetails interface{} `json:"catering_details,omitempty"`
 	FlightDetails   interface{} `json:"flight_details,omitempty"`
+	HotelDetails    interface{} `json:"hotel_details,omitempty"`
 }

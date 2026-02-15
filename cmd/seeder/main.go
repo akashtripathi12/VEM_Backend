@@ -85,7 +85,7 @@ func main() {
 		ID:           uuid.New(),
 		Name:         "Demo Agent",
 		Email:        "agent@demo.com",
-		PasswordHash: "$2a$10$examplehash",
+		PasswordHash: "$2a$10$5XQ/P7S1q1.H.5W/5.6.7uGvW8R.y6YEqg/kL5jD0j6qP6hD.fA1S", // Admin@123
 		Phone:        "+91-9876543210",
 		Role:         "agent",
 	}
@@ -104,7 +104,7 @@ func main() {
 		ID:           uuid.New(),
 		Name:         "Global Event Manager",
 		Email:        "headguest@demo.com",
-		PasswordHash: "$2a$10$examplehash",
+		PasswordHash: "$2a$10$5XQ/P7S1q1.H.5W/5.6.7uGvW8R.y6YEqg/kL5jD0j6qP6hD.fA1S", // Admin@123
 		Phone:        "+91-9123456789",
 		Role:         "head_guest",
 	}

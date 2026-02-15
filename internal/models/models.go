@@ -62,6 +62,9 @@ type Event struct {
 	Status         string         `gorm:"default:'draft'" json:"status"`
 	StartDate      time.Time      `json:"start_date"`
 	EndDate        time.Time      `json:"end_date"`
+
+	// Relations
+	CartItems []CartItem `gorm:"foreignKey:EventID" json:"cart_items,omitempty"`
 }
 
 // 1. Country Table (Global)

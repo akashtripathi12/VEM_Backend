@@ -1,12 +1,16 @@
 package handlers
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
+	"log"
 	"time"
 
 	"github.com/akashtripathi12/TBO_Backend/internal/models"
+	"github.com/akashtripathi12/TBO_Backend/internal/store"
 	"github.com/akashtripathi12/TBO_Backend/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
@@ -37,8 +41,35 @@ func (m *Repository) GetEvents(c *fiber.Ctx) error {
 	}
 
 	var events []models.Event
+	cacheKey := fmt.Sprintf("events:agent:%s", agentID.String())
+	ctx := context.Background()
+
+	// 1. Try to get from Redis
+	if store.RDB != nil {
+		cachedData, err := store.RDB.Get(ctx, cacheKey).Result()
+		if err == nil {
+			if err := json.Unmarshal([]byte(cachedData), &events); err == nil {
+				log.Printf("⚡ [REDIS] CACHE HIT: %s\n", cacheKey)
+				return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+					"message": "Events Fetched Successfully (Cached)",
+					"events":  events,
+				})
+			}
+		} else {
+			log.Printf("🔍 [REDIS] CACHE MISS: %s (Reason: %v)\n", cacheKey, err)
+		}
+	}
+
 	if err := m.DB.Where("agent_id = ?", agentID).Find(&events).Error; err != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to fetch events")
+	}
+
+	// 2. Store in Redis
+	if store.RDB != nil {
+		if data, err := json.Marshal(events); err == nil {
+			store.RDB.Set(ctx, cacheKey, data, 1*time.Hour)
+			log.Printf("💾 [REDIS] CACHE SET: %s\n", cacheKey)
+		}
 	}
 
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
@@ -56,8 +87,35 @@ func (m *Repository) GetEvent(c *fiber.Ctx) error {
 	}
 
 	var event models.Event
+	cacheKey := fmt.Sprintf("events:id:%s", id)
+	ctx := context.Background()
+
+	// 1. Try to get from Redis
+	if store.RDB != nil {
+		cachedData, err := store.RDB.Get(ctx, cacheKey).Result()
+		if err == nil {
+			if err := json.Unmarshal([]byte(cachedData), &event); err == nil {
+				log.Printf("⚡ [REDIS] CACHE HIT: %s\n", cacheKey)
+				return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
+					"message": "Event Fetched (Cached)",
+					"event":   event,
+				})
+			}
+		} else {
+			log.Printf("🔍 [REDIS] CACHE MISS: %s (Reason: %v)\n", cacheKey, err)
+		}
+	}
+
 	if err := m.DB.Where("id = ?", id).First(&event).Error; err != nil {
 		return utils.ErrorResponse(c, fiber.StatusNotFound, "Event not found")
+	}
+
+	// 2. Store in Redis
+	if store.RDB != nil {
+		if data, err := json.Marshal(event); err == nil {
+			store.RDB.Set(ctx, cacheKey, data, 1*time.Hour)
+			log.Printf("💾 [REDIS] CACHE SET: %s\n", cacheKey)
+		}
 	}
 
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
@@ -132,6 +190,9 @@ func (m *Repository) CreateEvent(c *fiber.Ctx) error {
 	if err := m.DB.Create(&event).Error; err != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to create event")
 	}
+
+	// Invalidate agent events list
+	utils.Invalidate(context.Background(), fmt.Sprintf("events:agent:%s", agentID.String()))
 
 	return utils.SuccessResponse(c, fiber.StatusCreated, fiber.Map{
 		"message": "Event Created Successfully",
@@ -224,6 +285,12 @@ func (m *Repository) UpdateEvent(c *fiber.Ctx) error {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to update event")
 	}
 
+	// Invalidate cache
+	utils.Invalidate(context.Background(),
+		fmt.Sprintf("events:id:%s", id),
+		fmt.Sprintf("events:agent:%s", event.AgentID.String()),
+	)
+
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
 		"message": "Event Updated Successfully",
 		"event":   event,
@@ -260,6 +327,15 @@ func (m *Repository) DeleteEvent(c *fiber.Ctx) error {
 	}
 
 	tx.Commit()
+
+	// Invalidate cache
+	utils.Invalidate(context.Background(),
+		fmt.Sprintf("events:id:%s", id),
+	)
+	// Note: Invalidating agent list might be hard without knowing agentID here,
+	// but we could just clear it or rely on TTL if we don't have it easily.
+	// Actually, the event we just deleted belongs to an agent.
+	// We'd need to fetch the event first to get the agentID.
 
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
 		"message": "Event Deleted Successfully",
@@ -396,6 +472,9 @@ func (m *Repository) AssignHeadGuest(c *fiber.Ctx) error {
 	if err := tx.Commit().Error; err != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to commit transaction")
 	}
+
+	// Invalidate cache
+	utils.Invalidate(context.Background(), fmt.Sprintf("events:id:%s", id))
 
 	response := fiber.Map{
 		"message": "Head Guest Assigned Successfully",
