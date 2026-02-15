@@ -67,12 +67,12 @@ func (m *Repository) GetEvent(c *fiber.Ctx) error {
 }
 
 type CreateEventRequest struct {
-	Name           string         `json:"name"` // Added Name field
-	HotelID        string         `json:"hotelId"`
-	Location       string         `json:"location"`
-	StartDate      string         `json:"startDate"`
-	EndDate        string         `json:"endDate"`
-	RoomsInventory map[string]int `json:"roomsInventory"`
+	Name           string               `json:"name"` // Added Name field
+	HotelID        string               `json:"hotelId"`
+	Location       string               `json:"location"`
+	StartDate      string               `json:"startDate"`
+	EndDate        string               `json:"endDate"`
+	RoomsInventory []RoomsInventoryItem `json:"roomsInventory"`
 }
 
 func (m *Repository) CreateEvent(c *fiber.Ctx) error {
@@ -169,28 +169,14 @@ func (m *Repository) GetEventVenues(c *fiber.Ctx) error {
 	})
 }
 
-func (m *Repository) GetEventAllocations(c *fiber.Ctx) error {
-	// Get event ID from path parameter
-	id := c.Params("id")
-
-	// TODO: Get allocations for event
-	// allocations, err := m.DB.GetAllocationsByEventID(id)
-	// if err != nil {
-	//     return utils.InternalErrorResponse(c, "Failed to fetch allocations")
-	// }
-
-	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
-		"message": "Get Event Allocations Endpoint",
-		"eventId": id,
-	})
-}
-
 // UpdateEventRequest struct
 type UpdateEventRequest struct {
-	Name      string `json:"name"`
-	Location  string `json:"location"`
-	StartDate string `json:"startDate"`
-	EndDate   string `json:"endDate"`
+	Name           string               `json:"name"`
+	HotelID        string               `json:"hotelId"`
+	Location       string               `json:"location"`
+	StartDate      string               `json:"startDate"`
+	EndDate        string               `json:"endDate"`
+	RoomsInventory []RoomsInventoryItem `json:"roomsInventory"`
 }
 
 func (m *Repository) UpdateEvent(c *fiber.Ctx) error {
@@ -209,6 +195,9 @@ func (m *Repository) UpdateEvent(c *fiber.Ctx) error {
 	if req.Name != "" {
 		updates["name"] = req.Name
 	}
+	if req.HotelID != "" {
+		updates["hotel_id"] = req.HotelID
+	}
 	if req.Location != "" {
 		updates["location"] = req.Location
 	}
@@ -224,6 +213,11 @@ func (m *Repository) UpdateEvent(c *fiber.Ctx) error {
 		if t, err := time.Parse(layout, req.EndDate); err == nil {
 			updates["end_date"] = t
 		}
+	}
+
+	if len(req.RoomsInventory) > 0 {
+		roomsJSON, _ := json.Marshal(req.RoomsInventory)
+		updates["rooms_inventory"] = datatypes.JSON(roomsJSON)
 	}
 
 	if err := m.DB.Model(&event).Updates(updates).Error; err != nil {
