@@ -103,4 +103,13 @@ func SetupRoutes(app *fiber.App, cfg *config.Config, repo *handlers.Repository) 
 	hotels.Get("/:hotelCode/rooms", repo.GetRoomsByHotel)
 	hotels.Get("/:hotelCode/banquets", repo.GetBanquetsByHotel)
 	hotels.Get("/:hotelCode/catering", repo.GetCateringByHotel)
+
+	// -----------------------------
+	// Negotiation Routes
+	// -----------------------------
+	negotiation := api.Group("/negotiation")
+	negotiation.Post("/init", middleware.Protected, repo.StartNegotiation)
+	negotiation.Post("/counter", repo.SubmitCounterOffer) // Public access via share_token
+	negotiation.Get("/:id/diff", repo.GetNegotiationDiff) // Public or Protected? Let's keep public for hotel view
+	negotiation.Post("/lock", middleware.Protected, repo.LockDeal)
 }
