@@ -633,49 +633,89 @@ func (m *Repository) RemoveFromCart(c *fiber.Ctx) error {
 		return utils.ErrorResponse(c, fiber.StatusNotFound, "Cart item not found")
 	}
 
+	itemType := cartItem.Type
+	var flightBookingID *uuid.UUID
+	if cartItem.FlightBookingID != nil {
+		flightBookingID = cartItem.FlightBookingID
+	}
+	var transferBookingID *uuid.UUID
+	if cartItem.TransferBookingID != nil {
+		transferBookingID = cartItem.TransferBookingID
+	}
+
 	// Start transaction
 	tx := m.DB.Begin()
 
-	// Restore inventory
-	if cartItem.Type == "flight" && cartItem.FlightBookingID != nil {
+	// 1. Delete cart item FIRST to clear any foreign key dependencies
+	if err := tx.Delete(&cartItem).Error; err != nil {
+		tx.Rollback()
+		log.Printf("ERROR: Failed to remove cart item: %v", err)
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to remove cart item")
+	}
+
+	// 2. Clear out the Booking and Restore Inventory
+	if itemType == "flight" && flightBookingID != nil {
 		var booking models.FlightBooking
-		if err := tx.First(&booking, cartItem.FlightBookingID).Error; err == nil {
+		if err := tx.First(&booking, flightBookingID).Error; err == nil {
 			// Restore seats
-			if err := tx.Model(&models.Flight{}).Where("id = ?", booking.FlightID).
-				Update("available_seats", gorm.Expr("available_seats + ?", booking.SeatsBooked)).Error; err != nil {
+			var flight models.Flight
+			if err := tx.First(&flight, booking.FlightID).Error; err != nil {
 				tx.Rollback()
+				log.Printf("ERROR: Failed to find flight: %v", err)
+				return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to find flight")
+			}
+			flight.AvailableSeats += booking.SeatsBooked
+			if err := tx.Save(&flight).Error; err != nil {
+				tx.Rollback()
+				log.Printf("ERROR: Failed to restore flight seats: %v", err)
 				return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to restore flight seats")
 			}
 			// Delete booking
 			if err := tx.Delete(&booking).Error; err != nil {
 				tx.Rollback()
+				log.Printf("ERROR: Failed to delete flight booking: %v", err)
 				return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete flight booking")
 			}
 		}
-	} else if cartItem.Type == "transfer" && cartItem.TransferBookingID != nil {
+	} else if itemType == "transfer" && transferBookingID != nil {
 		var booking models.TransferBooking
-		if err := tx.First(&booking, cartItem.TransferBookingID).Error; err == nil {
+		if err := tx.First(&booking, transferBookingID).Error; err == nil {
 			// Restore count
-			if err := tx.Model(&models.Transfer{}).Where("id = ?", booking.TransferID).
-				Update("available_count", gorm.Expr("available_count + ?", booking.CabsBooked)).Error; err != nil {
+			var transfer models.Transfer
+			if err := tx.First(&transfer, booking.TransferID).Error; err != nil {
 				tx.Rollback()
+				log.Printf("ERROR: Failed to find transfer: %v", err)
+				return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to find transfer")
+			}
+			transfer.AvailableCount += booking.CabsBooked
+			if err := tx.Save(&transfer).Error; err != nil {
+				tx.Rollback()
+				log.Printf("ERROR: Failed to restore transfer cabs: %v", err)
 				return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to restore transfer cabs")
 			}
 			// Delete booking
 			if err := tx.Delete(&booking).Error; err != nil {
 				tx.Rollback()
+				log.Printf("ERROR: Failed to delete transfer booking: %v", err)
 				return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete transfer booking")
 			}
 		}
 	}
 
-	// Delete cart item
-	if err := tx.Delete(&cartItem).Error; err != nil {
+	// 3. Reset Negotiations (Delete sessions & rounds for this event)
+	if err := tx.Exec("DELETE FROM negotiation_rounds WHERE session_id IN (SELECT id FROM negotiation_sessions WHERE event_id = ?)", eventID).Error; err != nil {
 		tx.Rollback()
-		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to remove cart item")
+		log.Printf("ERROR: Failed to clear negotiation rounds: %v", err)
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to clear negotiation rounds")
+	}
+	if err := tx.Exec("DELETE FROM negotiation_sessions WHERE event_id = ?", eventID).Error; err != nil {
+		tx.Rollback()
+		log.Printf("ERROR: Failed to clear negotiation sessions: %v", err)
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to clear negotiation sessions")
 	}
 
 	if err := tx.Commit().Error; err != nil {
+		log.Printf("ERROR: Failed to commit removal: %v", err)
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to commit removal")
 	}
 
@@ -712,6 +752,14 @@ func (m *Repository) RemoveHotelGroupFromCart(c *fiber.Ctx) error {
 
 	if result.Error != nil {
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to remove hotel group items")
+	}
+
+	// Reset Negotiations (Delete sessions & rounds for this event) since cart changed
+	if err := m.DB.Exec("DELETE FROM negotiation_rounds WHERE session_id IN (SELECT id FROM negotiation_sessions WHERE event_id = ?)", eventID).Error; err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to clear negotiation rounds")
+	}
+	if err := m.DB.Exec("DELETE FROM negotiation_sessions WHERE event_id = ?", eventID).Error; err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to clear negotiation sessions")
 	}
 
 	// Invalidate Cache

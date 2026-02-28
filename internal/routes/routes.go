@@ -146,4 +146,9 @@ func SetupRoutes(app *fiber.App, cfg *config.Config, repo *handlers.Repository) 
 	negotiation.Post("/counter", repo.SubmitCounterOffer) // Public access via share_token
 	negotiation.Get("/:id/diff", repo.GetNegotiationDiff) // Public or Protected? Let's keep public for hotel view
 	negotiation.Post("/lock", middleware.Protected, repo.LockDeal)
+	negotiation.Get("/token/:token", repo.GetNegotiationByToken) // Resolve share_token to session
+
+	// --- TBO Admin Routes ---
+	admin := protected.Group("/admin")
+	admin.Get("/negotiations", repo.GetAllNegotiations)
 }

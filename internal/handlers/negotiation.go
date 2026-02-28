@@ -1,14 +1,97 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 
 	"github.com/akashtripathi12/TBO_Backend/internal/models"
+	"github.com/akashtripathi12/TBO_Backend/internal/utils"
 	"github.com/gofiber/fiber/v2"
 	"github.com/google/uuid"
 	"gorm.io/datatypes"
+	"gorm.io/gorm"
 )
+
+// GetAllNegotiations returns all active (non-locked) negotiation sessions for the TBO admin dashboard
+func (r *Repository) GetAllNegotiations(c *fiber.Ctx) error {
+	var sessions []models.NegotiationSession
+	if err := r.DB.
+		Preload("Event").
+		Where("status != ?", models.NegotiationStatusLocked).
+		Order("updated_at desc").
+		Find(&sessions).Error; err != nil {
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to fetch negotiations")
+	}
+
+	// Build response with event details
+	type SessionResponse struct {
+		models.NegotiationSession
+		Event *struct {
+			Name      string `json:"name"`
+			Location  string `json:"location"`
+			StartDate string `json:"start_date"`
+		} `json:"Event,omitempty"`
+	}
+
+	var resp []SessionResponse
+	for _, s := range sessions {
+		sr := SessionResponse{NegotiationSession: s}
+		sr.Event = &struct {
+			Name      string `json:"name"`
+			Location  string `json:"location"`
+			StartDate string `json:"start_date"`
+		}{
+			Name:      s.Event.Name,
+			Location:  s.Event.Location,
+			StartDate: s.Event.StartDate.Format("2006-01-02"),
+		}
+		resp = append(resp, sr)
+	}
+
+	if resp == nil {
+		resp = []SessionResponse{}
+	}
+
+	return c.JSON(resp)
+}
+
+// GetNegotiationByToken resolves a share_token to a full session with all rounds
+func (r *Repository) GetNegotiationByToken(c *fiber.Ctx) error {
+	token := c.Params("token")
+	log.Printf("🔍 GetNegotiationByToken called with token: %s", token)
+
+	parsedToken, err := uuid.Parse(token)
+	if err != nil {
+		log.Printf("❌ Invalid token format: %v", err)
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, "Invalid token format")
+	}
+
+	var session models.NegotiationSession
+	if err := r.DB.
+		Preload("Event").
+		Preload("Rounds", func(db *gorm.DB) *gorm.DB {
+			return db.Order("round_number asc")
+		}).
+		Where("share_token = ?", parsedToken).
+		First(&session).Error; err != nil {
+		log.Printf("❌ Session not found for token %s: %v", token, err)
+		return utils.ErrorResponse(c, fiber.StatusNotFound, "Negotiation session not found")
+	}
+
+	log.Printf("✅ Session found: ID=%s, Status=%s, EventID=%s", session.ID, session.Status, session.EventID)
+
+	return c.JSON(fiber.Map{
+		"session": session,
+		"event": fiber.Map{
+			"id":         session.Event.ID,
+			"name":       session.Event.Name,
+			"location":   session.Event.Location,
+			"start_date": session.Event.StartDate.Format("2006-01-02"),
+		},
+	})
+}
 
 // StartNegotiationRequest
 type StartNegotiationRequest struct {
@@ -64,22 +147,63 @@ func (r *Repository) StartNegotiation(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to create negotiation session"})
 	}
 
-	// 4. Create Round 1 (Agent's Proposal)
+	// 4. Create Round 1 (Agent's Proposal) — only rooms, banquets, catering
 	var proposalItems []models.ProposalItem
 	for _, item := range cartItems {
+		// Skip non-negotiable types
+		if item.Type == "hotel" || item.Type == "flight" || item.Type == "transfer" {
+			continue
+		}
+
 		targetPrice, ok := req.TargetPrices[item.ID.String()]
 		if !ok {
-			targetPrice = item.LockedPrice // Default to current price if not targeted
+			targetPrice = item.LockedPrice
+		}
+
+		// Resolve item name from ref tables
+		itemName := item.Type // fallback
+		hotelName := ""
+
+		// Look up hotel name if we have a parent hotel
+		if item.ParentHotelID != nil && *item.ParentHotelID != "" {
+			var hotel models.Hotel
+			if err := r.DB.Where("hotel_code = ?", *item.ParentHotelID).First(&hotel).Error; err == nil {
+				hotelName = hotel.Name
+			}
+		}
+
+		switch item.Type {
+		case "room":
+			var room models.RoomOffer
+			if err := r.DB.Where("id = ?", item.RefID).First(&room).Error; err == nil {
+				itemName = room.Name
+			}
+		case "banquet":
+			var banquet models.BanquetHall
+			if err := r.DB.Where("id = ?", item.RefID).First(&banquet).Error; err == nil {
+				itemName = banquet.Name
+			}
+		case "catering":
+			var catering models.CateringMenu
+			if err := r.DB.Where("id = ?", item.RefID).First(&catering).Error; err == nil {
+				itemName = catering.Name
+			}
+		}
+
+		// Add hotel name as context
+		displayName := itemName
+		if hotelName != "" {
+			displayName = fmt.Sprintf("%s (%s)", itemName, hotelName)
 		}
 
 		proposalItems = append(proposalItems, models.ProposalItem{
-			CartItemID: item.ID,
-			Type:       item.Type,
-			RefID:      item.RefID,
-			// Name: item.Name, // Not available directly in CartItem, would need to fetch or ignore for now
-			Quantity: item.Quantity,
-			Price:    targetPrice,
-			// Currency: item.Currency,
+			CartItemID:    item.ID,
+			Type:          item.Type,
+			RefID:         item.RefID,
+			Name:          displayName,
+			Quantity:      item.Quantity,
+			Price:         targetPrice,
+			OriginalPrice: item.LockedPrice,
 		})
 	}
 
@@ -139,20 +263,19 @@ func (r *Repository) SubmitCounterOffer(c *fiber.Ctx) error {
 		return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Negotiation is locked"})
 	}
 
-	// Determine who is modifying
-	// For now, if we are hitting this endpoint via ShareToken, it's the counterpart.
-	// We are replacing Hotel with TBO Agent.
-	modifier := models.NegotiationModifierTboAgent
-	// Check if Agent (authenticated user)
-	// user := c.Locals("user") ...
-	// Logic to switch status based on who's calling.
-	// Requirement: "Turn Switch: Update status to WAITING_FOR_AGENT" implied Hotel is calling.
+	// Determine who is modifying based on authenticated user's role
+	userRole, _ := c.Locals("role").(string)
+	log.Printf("🔍 SubmitCounterOffer: userRole=%s", userRole)
 
+	modifier := models.NegotiationModifierTboAgent // default
 	var nextStatus string
-	if modifier == models.NegotiationModifierTboAgent {
-		nextStatus = models.NegotiationStatusWaitingForAgent
-	} else {
+
+	if userRole == "agent" {
+		modifier = models.NegotiationModifierAgent
 		nextStatus = models.NegotiationStatusWaitingForTboAgent
+	} else {
+		modifier = models.NegotiationModifierTboAgent
+		nextStatus = models.NegotiationStatusWaitingForAgent
 	}
 
 	// 2. Fetch Previous Round (Latest)
@@ -348,6 +471,9 @@ func (r *Repository) LockDeal(c *fiber.Ctx) error {
 	// TODO: fire event/queue
 
 	tx.Commit()
+
+	// Invalidate Cart Cache
+	utils.Invalidate(context.Background(), fmt.Sprintf("cart:event:%s", session.EventID.String()))
 
 	return c.JSON(fiber.Map{"message": "Deal locked successfully"})
 }

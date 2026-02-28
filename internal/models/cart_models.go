@@ -33,28 +33,32 @@ type CartItem struct {
 
 // BeforeSave validates the cart item before saving
 func (c *CartItem) BeforeSave(tx *gorm.DB) error {
-	// Validate type
-	validTypes := map[string]bool{
-		"room":     true,
-		"banquet":  true,
-		"catering": true,
-		"flight":   true,
-		"hotel":    true,
-		"transfer": true,
-	}
-	if !validTypes[c.Type] {
-		return gorm.ErrInvalidData
+	// Validate type only if it's set (useful when using Updates with maps)
+	if c.Type != "" {
+		validTypes := map[string]bool{
+			"room":     true,
+			"banquet":  true,
+			"catering": true,
+			"flight":   true,
+			"hotel":    true, // Hotel as a wishlist group?
+			"transfer": true,
+		}
+		if !validTypes[c.Type] {
+			return gorm.ErrInvalidData
+		}
 	}
 
 	// Validate status
-	validStatuses := map[string]bool{
-		"wishlist": true,
-		"approved": true,
-		"booked":   true,
-		"cart":     true,
-	}
-	if !validStatuses[c.Status] {
-		return gorm.ErrInvalidData
+	if c.Status != "" {
+		validStatuses := map[string]bool{
+			"wishlist": true,
+			"approved": true,
+			"booked":   true,
+			"cart":     true,
+		}
+		if !validStatuses[c.Status] {
+			return gorm.ErrInvalidData
+		}
 	}
 
 	return nil

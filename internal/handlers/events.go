@@ -106,10 +106,12 @@ func (m *Repository) GetEvents(c *fiber.Ctx) error {
 
 		// Calculate Pending Actions (e.g. guests without allocations)
 		var pendingGuests int64
-		m.DB.Model(&models.Guest{}).
-			Joins("LEFT JOIN guest_allocations ON guests.id = guest_allocations.guest_id").
-			Where("guests.event_id = ? AND guest_allocations.id IS NULL", evt.ID).
-			Count(&pendingGuests)
+		if evt.Status != "locked" && evt.Status != "finalized" {
+			m.DB.Model(&models.Guest{}).
+				Joins("LEFT JOIN guest_allocations ON guests.id = guest_allocations.guest_id").
+				Where("guests.event_id = ? AND guest_allocations.id IS NULL", evt.ID).
+				Count(&pendingGuests)
+		}
 
 		// And maybe lacking a head guest
 		pendingActions := int(pendingGuests)
@@ -239,10 +241,12 @@ func (m *Repository) GetEvent(c *fiber.Ctx) error {
 
 	// Calculate Pending Actions (e.g. guests without allocations)
 	var pendingGuests int64
-	m.DB.Model(&models.Guest{}).
-		Joins("LEFT JOIN guest_allocations ON guests.id = guest_allocations.guest_id").
-		Where("guests.event_id = ? AND guest_allocations.id IS NULL", event.ID).
-		Count(&pendingGuests)
+	if event.Status != "locked" && event.Status != "finalized" {
+		m.DB.Model(&models.Guest{}).
+			Joins("LEFT JOIN guest_allocations ON guests.id = guest_allocations.guest_id").
+			Where("guests.event_id = ? AND guest_allocations.id IS NULL", event.ID).
+			Count(&pendingGuests)
+	}
 
 	pendingActions := int(pendingGuests)
 	var pendingActionDetails []string
@@ -411,14 +415,14 @@ func (m *Repository) GetEventVenues(c *fiber.Ctx) error {
 }
 
 type UpdateEventRequest struct {
-	Name           string               `json:"name"`
-	HotelID        string               `json:"hotelId"`
-	Location       string               `json:"location"`
-	StartDate      string               `json:"startDate"`
-	EndDate        string               `json:"endDate"`
-	Budget         *float64             `json:"budget"`
-	BudgetSpent    *float64             `json:"budgetSpent"`
-	RoomsInventory []RoomsInventoryItem `json:"roomsInventory"`
+	Name           string                `json:"name"`
+	HotelID        string                `json:"hotelId"`
+	Location       string                `json:"location"`
+	StartDate      string                `json:"startDate"`
+	EndDate        string                `json:"endDate"`
+	Budget         *float64              `json:"budget"`
+	BudgetSpent    *float64              `json:"budgetSpent"`
+	RoomsInventory *[]RoomsInventoryItem `json:"roomsInventory"`
 }
 
 func (m *Repository) UpdateEvent(c *fiber.Ctx) error {
@@ -463,8 +467,8 @@ func (m *Repository) UpdateEvent(c *fiber.Ctx) error {
 		updates["budget_spent"] = *req.BudgetSpent
 	}
 
-	if len(req.RoomsInventory) > 0 {
-		roomsJSON, _ := json.Marshal(req.RoomsInventory)
+	if req.RoomsInventory != nil {
+		roomsJSON, _ := json.Marshal(*req.RoomsInventory)
 		updates["rooms_inventory"] = datatypes.JSON(roomsJSON)
 	}
 
@@ -511,6 +515,32 @@ func (m *Repository) DeleteEvent(c *fiber.Ctx) error {
 	if err := tx.Where("event_id = ?", id).Delete(&models.Guest{}).Error; err != nil {
 		tx.Rollback()
 		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete guests")
+	}
+
+	// Delete Negotiation Rounds explicitly (using subquery on sessions)
+	if err := tx.Exec("DELETE FROM negotiation_rounds WHERE session_id IN (SELECT id FROM negotiation_sessions WHERE event_id = ?)", id).Error; err != nil {
+		tx.Rollback()
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete negotiation rounds")
+	}
+
+	// Delete Negotiation Sessions
+	if err := tx.Exec("DELETE FROM negotiation_sessions WHERE event_id = ?", id).Error; err != nil {
+		tx.Rollback()
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete negotiation sessions")
+	}
+
+	// Delete Cart Items
+	if err := tx.Where("event_id = ?", id).Delete(&models.CartItem{}).Error; err != nil {
+		tx.Rollback()
+		return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete cart items")
+	}
+
+	// Delete Head Guest
+	if event.HeadGuestID != uuid.Nil {
+		if err := tx.Where("id = ?", event.HeadGuestID).Delete(&models.User{}).Error; err != nil {
+			tx.Rollback()
+			return utils.ErrorResponse(c, fiber.StatusInternalServerError, "Failed to delete head guest")
+		}
 	}
 
 	// Delete Event

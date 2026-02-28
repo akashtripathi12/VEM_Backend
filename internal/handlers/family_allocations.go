@@ -248,10 +248,10 @@ func AllocateFamilyHandler(db *gorm.DB) fiber.Handler {
 		}
 
 		// Step 3: Check if event allows allocation
-		if event.Status == "finalized" {
+		if event.Status == "finalized" || event.Status == "locked" {
 			tx.Rollback()
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Event is finalized and locked",
+				"error": "Event is locked or finalized",
 			})
 		}
 
@@ -462,13 +462,19 @@ func FinalizeRoomsHandler(db *gorm.DB) fiber.Handler {
 			}
 		}
 
-		if event.Status == "finalized" {
+		if event.Status == "finalized" || event.Status == "locked" {
 			tx.Rollback()
-			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Event already finalized"})
+			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{"error": "Event is already locked or finalized"})
+		}
+
+		// Determine target status based on role
+		targetStatus := "finalized"
+		if role == "head_guest" {
+			targetStatus = "locked"
 		}
 
 		// Update Status
-		if err := tx.Model(&event).Update("status", "finalized").Error; err != nil {
+		if err := tx.Model(&event).Update("status", targetStatus).Error; err != nil {
 			tx.Rollback()
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Failed to finalize rooms"})
 		}
@@ -477,11 +483,11 @@ func FinalizeRoomsHandler(db *gorm.DB) fiber.Handler {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Commit failed"})
 		}
 
-		log.Printf("✅ Event %s rooms finalized", eventID)
+		log.Printf("✅ Event %s rooms status updated to %s", eventID, targetStatus)
 
 		return c.JSON(fiber.Map{
 			"message":  "Room mapping locked successfully",
-			"status":   "finalized",
+			"status":   targetStatus,
 			"event_id": eventID,
 		})
 	}
@@ -500,13 +506,19 @@ func ReopenAllocationHandler(db *gorm.DB) fiber.Handler {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Invalid user ID type"})
 		}
 
-		// Check role
+		// Check role - MUST BE AGENT for unlock permission
 		userRole := c.Locals("role")
 		if userRole == nil {
 			return c.Status(fiber.StatusUnauthorized).JSON(fiber.Map{"error": "Unauthorized"})
 		}
-		if _, ok := userRole.(string); !ok {
+		role, ok := userRole.(string)
+		if !ok {
 			return c.Status(fiber.StatusInternalServerError).JSON(fiber.Map{"error": "Invalid user role type"})
+		}
+
+		if role != "agent" {
+			// Even if Head Guest technically calls this, block it. Only agent can reopen.
+			return c.Status(fiber.StatusForbidden).JSON(fiber.Map{"error": "Only agents can reopen allocations"})
 		}
 
 		eventID := c.Params("id")
@@ -536,11 +548,11 @@ func ReopenAllocationHandler(db *gorm.DB) fiber.Handler {
 		}
 
 		// State Machine Validation
-		// Valid transitions: finalized -> active
-		if event.Status != "finalized" {
+		// Valid transitions: locked -> active OR finalized -> active
+		if event.Status != "finalized" && event.Status != "locked" {
 			tx.Rollback()
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Event is not finalized",
+				"error": "Event must be locked or finalized to reopen",
 			})
 		}
 
@@ -819,10 +831,10 @@ func UpdateAllocationHandler(db *gorm.DB) fiber.Handler {
 		}
 
 		// Step 4: Check Event Status
-		if event.Status == "finalized" {
+		if event.Status == "finalized" || event.Status == "locked" {
 			tx.Rollback()
 			return c.Status(fiber.StatusBadRequest).JSON(fiber.Map{
-				"error": "Event is finalized and locked",
+				"error": "Event is already locked or finalized",
 			})
 		}
 
