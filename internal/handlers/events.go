@@ -401,16 +401,82 @@ func (m *Repository) GetEventVenues(c *fiber.Ctx) error {
 	// Get event ID from path parameter
 	id := c.Params("id")
 
-	// TODO: Get venues for event
-	// venues, err := m.DB.GetVenuesByEventID(id)
-	// if err != nil {
-	//     return utils.InternalErrorResponse(c, "Failed to fetch venues")
-	// }
+	if _, err := uuid.Parse(id); err != nil {
+		return utils.ErrorResponse(c, fiber.StatusBadRequest, "Invalid Event ID")
+	}
+
+	var event models.Event
+	if err := m.DB.Where("id = ?", id).First(&event).Error; err != nil {
+		return utils.ErrorResponse(c, fiber.StatusNotFound, "Event not found")
+	}
+
+	venues := []map[string]interface{}{}
+
+	// Get all cart items for this event
+	var cartItems []models.CartItem
+	if err := m.DB.Where("event_id = ? AND parent_hotel_id IS NOT NULL", id).Find(&cartItems).Error; err == nil {
+
+		// Map to store highest status priority for each hotel
+		// Priorities: wishlist (1), cart (2), approved (3)
+		hotelStatusMap := make(map[string]string)
+		statusWeight := map[string]int{"wishlist": 1, "cart": 2, "approved": 3}
+
+		for _, item := range cartItems {
+			if item.ParentHotelID == nil || *item.ParentHotelID == "" {
+				continue
+			}
+
+			hotelID := *item.ParentHotelID
+			currentStatus := hotelStatusMap[hotelID]
+			itemStatus := item.Status
+
+			// If we haven't seen this hotel yet, or the new status is higher priority, update it
+			if currentStatus == "" || statusWeight[itemStatus] > statusWeight[currentStatus] {
+				hotelStatusMap[hotelID] = itemStatus
+			}
+		}
+
+		// Extract unique hotel IDs
+		var uniqueHotelIDs []string
+		for hotelID := range hotelStatusMap {
+			uniqueHotelIDs = append(uniqueHotelIDs, hotelID)
+		}
+
+		if len(uniqueHotelIDs) > 0 {
+			// Fetch all hotels in one go
+			var hotels []models.Hotel
+			if err := m.DB.Where("hotel_code IN ?", uniqueHotelIDs).Find(&hotels).Error; err == nil {
+				for _, hotel := range hotels {
+					var images []string
+					if len(hotel.ImageUrls) > 0 {
+						_ = json.Unmarshal(hotel.ImageUrls, &images)
+					}
+
+					var amenities []string
+					if len(hotel.Facilities) > 0 {
+						_ = json.Unmarshal(hotel.Facilities, &amenities)
+					}
+
+					venue := map[string]interface{}{
+						"id":          hotel.ID,
+						"name":        hotel.Name,
+						"location":    hotel.Address,
+						"description": fmt.Sprintf("%d-Star Property in %s", hotel.StarRating, hotel.CityID),
+						"images":      images,
+						"amenities":   amenities,
+						"eventId":     id,
+						"status":      hotelStatusMap[hotel.ID], // Include the highest priority status
+					}
+					venues = append(venues, venue)
+				}
+			}
+		}
+	}
 
 	return utils.SuccessResponse(c, fiber.StatusOK, fiber.Map{
 		"message": "Get Event Venues Endpoint",
 		"eventId": id,
-		"venues":  []interface{}{},
+		"venues":  venues,
 	})
 }
 
