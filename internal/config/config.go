@@ -8,19 +8,19 @@ import (
 )
 
 type Config struct {
-	Port           string
-	Env            string
-	ReadTimeout    time.Duration
-	WriteTimeout   time.Duration
-	BodyLimit      int
-	AllowedOrigins []string
-	TrustedProxies []string
-	EnableLogger   bool
-	FrontendURL    string
-	RedisAddr      string
-	RedisPass      string
-	RedisDB        int
-	ResendAPIKey   string
+	Port            string
+	Env             string
+	ReadTimeout     time.Duration
+	WriteTimeout    time.Duration
+	BodyLimit       int
+	AllowedOrigins  []string
+	TrustedProxies  []string
+	EnableLogger    bool
+	FrontendURL     string
+	RedisAddr       string
+	RedisPass       string
+	RedisDB         int
+	GoogleScriptURL string
 }
 
 func Load() *Config {
@@ -62,19 +62,19 @@ func Load() *Config {
 	}
 
 	return &Config{
-		Port:           ":" + port,
-		Env:            env,
-		ReadTimeout:    10 * time.Second,
-		WriteTimeout:   10 * time.Second,
-		BodyLimit:      4 * 1024 * 1024, // 4MB
-		AllowedOrigins: allowedOrigins,
-		TrustedProxies: []string{},
-		EnableLogger:   true,
-		FrontendURL:    frontendURL,
-		RedisAddr:      redisURL, // Now correctly holds the URI (e.g., redis://red-xxxxx:6379)
-		RedisPass:      os.Getenv("REDIS_PASS"),
-		RedisDB:        getEnvInt("REDIS_DB", 0),
-		ResendAPIKey:   os.Getenv("RESEND_API_KEY"),
+		Port:            ":" + port,
+		Env:             env,
+		ReadTimeout:     10 * time.Second,
+		WriteTimeout:    10 * time.Second,
+		BodyLimit:       4 * 1024 * 1024, // 4MB
+		AllowedOrigins:  allowedOrigins,
+		TrustedProxies:  []string{},
+		EnableLogger:    true,
+		FrontendURL:     frontendURL,
+		RedisAddr:       redisURL, // Now correctly holds the URI (e.g., redis://red-xxxxx:6379)
+		RedisPass:       os.Getenv("REDIS_PASS"),
+		RedisDB:         getEnvInt("REDIS_DB", 0),
+		GoogleScriptURL: os.Getenv("GOOGLE_SCRIPT_URL"),
 	}
 }
 

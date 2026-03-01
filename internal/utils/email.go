@@ -7,34 +7,34 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"time"
 
 	"github.com/akashtripathi12/TBO_Backend/internal/config"
 )
 
-// ResendPayload defines the body structure for Resend API
-type ResendPayload struct {
-	From    string   `json:"from"`
-	To      []string `json:"to"`
-	Subject string   `json:"subject"`
-	HTML    string   `json:"html"`
+// EmailBridgePayload defines the body structure for Google Apps Script
+type EmailBridgePayload struct {
+	To      string `json:"to"`
+	Subject string `json:"subject"`
+	Body    string `json:"body"`
 }
 
-// SendEmail sends an email using Resend HTTPS API (bypasses SMTP restrictions)
+// SendEmail sends an email using Google Apps Script Web App bridge
 func SendEmail(cfg *config.Config, to []string, subject string, body string) error {
-	apiKey := cfg.ResendAPIKey
-	if apiKey == "" {
-		return fmt.Errorf("RESEND_API_KEY missing - cannot send email")
+	scriptURL := cfg.GoogleScriptURL
+	if scriptURL == "" {
+		return fmt.Errorf("GOOGLE_SCRIPT_URL missing - cannot send email")
 	}
 
-	// Use Resend's onboarding email if no custom domain is verified
-	// Replaced "tboemailservice@gmail.com" with a valid Resend sender
-	from := "TBO <onboarding@resend.dev>"
+	// Google Script POST only supports one 'to' at a time in our current script
+	// or we join them. Since our worker typically sends one per guest/family,
+	// we'll use the first one.
+	targetEmail := to[0]
 
-	payload := ResendPayload{
-		From:    from,
-		To:      to,
+	payload := EmailBridgePayload{
+		To:      targetEmail,
 		Subject: subject,
-		HTML:    body,
+		Body:    body,
 	}
 
 	jsonPayload, err := json.Marshal(payload)
@@ -42,26 +42,32 @@ func SendEmail(cfg *config.Config, to []string, subject string, body string) err
 		return fmt.Errorf("failed to marshal email payload: %w", err)
 	}
 
-	req, err := http.NewRequest("POST", "https://api.resend.com/emails", bytes.NewBuffer(jsonPayload))
+	req, err := http.NewRequest("POST", scriptURL, bytes.NewBuffer(jsonPayload))
 	if err != nil {
 		return fmt.Errorf("failed to create request: %w", err)
 	}
 
-	req.Header.Set("Authorization", "Bearer "+apiKey)
 	req.Header.Set("Content-Type", "application/json")
 
-	client := &http.Client{}
+	client := &http.Client{
+		Timeout: 30 * time.Second, // Google Scripts can be slow
+	}
+
+	log.Printf("📡 [DEBUG] Sending Google Script bridge request (Target: %s)", targetEmail)
 	resp, err := client.Do(req)
 	if err != nil {
-		return fmt.Errorf("failed to call Resend API: %w", err)
+		log.Printf("❌ [DEBUG] Google Script Call Failed: %v", err)
+		return fmt.Errorf("failed to call Google Script: %w", err)
 	}
 	defer resp.Body.Close()
 
-	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusCreated {
-		respBody, _ := io.ReadAll(resp.Body)
-		return fmt.Errorf("Resend API error (Status %d): %s", resp.StatusCode, string(respBody))
+	respBody, _ := io.ReadAll(resp.Body)
+	log.Printf("📡 [DEBUG] Google Script Response Status: %d | Body: %s", resp.StatusCode, string(respBody))
+
+	if resp.StatusCode != http.StatusOK && resp.StatusCode != http.StatusFound {
+		return fmt.Errorf("Google Script error (Status %d): %s", resp.StatusCode, string(respBody))
 	}
 
-	log.Printf("📧 Email sent to %v via Resend API", to)
+	log.Printf("📧 Email sent to %s via Google Script bridge", targetEmail)
 	return nil
 }
