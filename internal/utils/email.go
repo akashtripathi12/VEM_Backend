@@ -1,29 +1,30 @@
 package utils
 
 import (
+	"crypto/tls"
 	"fmt"
 	"log"
 	"net/smtp"
-	"os"
+	"strings"
+
+	"github.com/akashtripathi12/TBO_Backend/internal/config"
 )
 
-// SendEmail sends an email using Gmail SMTP
-// It reads SMTP_EMAIL and SMTP_PASS from environment variables
-// If credentials are missing, it logs the email to the console (useful for dev)
-func SendEmail(to []string, subject string, body string) error {
-	from := os.Getenv("SMTP_EMAIL")
-	password := os.Getenv("SMTP_PASS")
+// SendEmail sends an email using SMTP
+// It supports both STARTTLS (Port 587) and Implicit SSL (Port 465)
+func SendEmail(cfg *config.Config, to []string, subject string, body string) error {
+	from := cfg.SMTPEmail
+	password := cfg.SMTPPass
+	smtpHost := cfg.SMTPHost
+	smtpPort := cfg.SMTPPort
 
-	// Development mode: Log if credentials missing
+	// Validation
 	if from == "" || password == "" {
-		log.Printf("⚠️ [DEV MODE] Email to %v\nSubject: %s\nBody (truncated): %s...\n", to, subject, body[:min(len(body), 50)])
-		log.Println("ℹ️ Set SMTP_EMAIL and SMTP_PASS to send real emails.")
-		return nil
+		return fmt.Errorf("SMTP credentials missing: check SMTP_EMAIL and SMTP_PASS")
 	}
 
-	// SMTP Server configuration
-	smtpHost := "smtp.gmail.com"
-	smtpPort := "587"
+	// Remove spaces from Gmail App Password if present
+	password = strings.ReplaceAll(password, " ", "")
 
 	// Message construction
 	message := []byte(fmt.Sprintf("To: %s\r\n"+
@@ -36,19 +37,64 @@ func SendEmail(to []string, subject string, body string) error {
 	// Authentication
 	auth := smtp.PlainAuth("", from, password, smtpHost)
 
-	// Sending email
+	// Handling Implicit SSL (Port 465)
+	if smtpPort == "465" {
+		tlsConfig := &tls.Config{
+			InsecureSkipVerify: false,
+			ServerName:         smtpHost,
+		}
+
+		conn, err := tls.Dial("tcp", fmt.Sprintf("%s:%s", smtpHost, smtpPort), tlsConfig)
+		if err != nil {
+			return fmt.Errorf("failed to connect via TLS: %w", err)
+		}
+		defer conn.Close()
+
+		client, err := smtp.NewClient(conn, smtpHost)
+		if err != nil {
+			return fmt.Errorf("failed to create SMTP client: %w", err)
+		}
+		defer client.Quit()
+
+		if err = client.Auth(auth); err != nil {
+			return fmt.Errorf("SMTP authentication failed: %w", err)
+		}
+
+		if err = client.Mail(from); err != nil {
+			return fmt.Errorf("failed to set sender: %w", err)
+		}
+
+		for _, addr := range to {
+			if err = client.Rcpt(addr); err != nil {
+				return fmt.Errorf("failed to set recipient %s: %w", addr, err)
+			}
+		}
+
+		w, err := client.Data()
+		if err != nil {
+			return fmt.Errorf("failed to open data writer: %w", err)
+		}
+
+		_, err = w.Write(message)
+		if err != nil {
+			return fmt.Errorf("failed to write message: %w", err)
+		}
+
+		err = w.Close()
+		if err != nil {
+			return fmt.Errorf("failed to close data writer: %w", err)
+		}
+
+		log.Printf("📧 Email sent to %v via Port 465 (SSL)", to)
+		return nil
+	}
+
+	// Standard SMTP (Port 587/STARTTLS)
 	err := smtp.SendMail(smtpHost+":"+smtpPort, auth, from, to, message)
 	if err != nil {
-		return fmt.Errorf("failed to send email: %w", err)
+		return fmt.Errorf("failed to send email via Port %s: %w", smtpPort, err)
 	}
 
-	log.Printf("📧 Email sent to %v", to)
+	log.Printf("📧 Email sent to %v via Port %s", to, smtpPort)
 	return nil
-}
-
-func min(a, b int) int {
-	if a < b {
-		return a
-	}
-	return b
 }

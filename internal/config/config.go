@@ -20,6 +20,10 @@ type Config struct {
 	RedisAddr      string
 	RedisPass      string
 	RedisDB        int
+	SMTPEmail      string
+	SMTPPass       string
+	SMTPHost       string
+	SMTPPort       string
 }
 
 func Load() *Config {
@@ -73,7 +77,18 @@ func Load() *Config {
 		RedisAddr:      redisURL, // Now correctly holds the URI (e.g., redis://red-xxxxx:6379)
 		RedisPass:      os.Getenv("REDIS_PASS"),
 		RedisDB:        getEnvInt("REDIS_DB", 0),
+		SMTPEmail:      os.Getenv("SMTP_EMAIL"),
+		SMTPPass:       os.Getenv("SMTP_PASS"),
+		SMTPHost:       getEnvDefault("SMTP_HOST", "smtp.gmail.com"),
+		SMTPPort:       getEnvDefault("SMTP_PORT", "587"),
 	}
+}
+
+func getEnvDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
 }
 
 func getEnvInt(key string, defaultVal int) int {

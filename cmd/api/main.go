@@ -55,8 +55,9 @@ func main() {
 	)
 
 	// Register Task Handlers
+	handler := &queue.TaskHandler{Cfg: cfg}
 	mux := asynq.NewServeMux()
-	mux.HandleFunc(queue.TypeEmailDelivery, queue.HandleEmailTask)
+	mux.HandleFunc(queue.TypeEmailDelivery, handler.HandleEmailTask)
 
 	// Run Worker in Background
 	go func() {
